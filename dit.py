@@ -166,7 +166,9 @@ class FeedForward(nn.Module):
         if act == "swiglu":
             self.act_fn = self._forward_silu_gating
         elif act == "relugtz":
-            self.relugt = ReLUGT()
+            # torch.jit.script gives a 5x performance gain with no penalty (?????????????)
+            # making it faster than SwiGLU!!!
+            self.relugt = torch.jit.script(ReLUGT())
             self.act_fn = self._forward_relugtz_gating
     def _forward_relugtz_gating(self, x1, x3):
         return self.relugt(x1) * x3
