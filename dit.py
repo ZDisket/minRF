@@ -136,20 +136,26 @@ class Attention(nn.Module):
 
         return self.wo(output)
 
+@torch.jit.script
+def relugt_forward(x, slope, alpha_neg, alpha_pos):
+    return torch.where(x < 0, alpha_neg * slope * x, alpha_pos * x ** 2)
 
 class ReLUGT(nn.Module):
     """
     ReLU GT: Leaky squared ReLU with trainable positive alpha, slope, and static negative alpha.
     Early experiments show near parity with APTx S1 with faster initial fitting. Only squares positive part.
+
+    5x faster when forward pass is torch.jit.script
     """
     def __init__(self, initial_slope=0.05, initial_alpha_neg=2.5, initial_alpha_pos=1.0):
         super(ReLUGT, self).__init__()
         self.slope = nn.Parameter(torch.tensor(initial_slope))
-        self.alpha_neg = initial_alpha_neg
+        self.alpha_neg = nn.Parameter(torch.tensor(initial_alpha_neg))  # Changed to tensor
         self.alpha_pos = nn.Parameter(torch.tensor(initial_alpha_pos))
 
     def forward(self, x):
-        return torch.where(x < 0, self.alpha_neg * self.slope * x, self.alpha_pos * x ** 2)
+        return relugt_forward(x, self.slope, self.alpha_neg, self.alpha_pos)
+
 
 class FeedForward(nn.Module):
     def __init__(self, dim, hidden_dim, multiple_of, ffn_dim_multiplier=None, act="swiglu"):
@@ -166,12 +172,15 @@ class FeedForward(nn.Module):
         if act == "swiglu":
             self.act_fn = self._forward_silu_gating
         elif act == "relugtz":
-            # torch.jit.script gives a 5x performance gain with no penalty (?????????????)
-            # making it faster than SwiGLU!!!
-            self.relugt = torch.jit.script(ReLUGT())
+            self.relugt = ReLUGT()
             self.act_fn = self._forward_relugtz_gating
+        else
+            raise RuntimeError(f"Unknown activation function {act}")
+
+
     def _forward_relugtz_gating(self, x1, x3):
         return self.relugt(x1) * x3
+
     def _forward_silu_gating(self, x1, x3):
         return F.silu(x1) * x3
 
