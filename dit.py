@@ -174,7 +174,7 @@ class FeedForward(nn.Module):
         elif act == "relugtz":
             self.relugt = ReLUGT()
             self.act_fn = self._forward_relugtz_gating
-        else
+        else:
             raise RuntimeError(f"Unknown activation function {act}")
 
 
