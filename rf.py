@@ -60,8 +60,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="use cifar?")
     parser.add_argument("--cifar", action="store_true")
+    parser.add_argument("--relugtz", action="store_true")
     args = parser.parse_args()
     CIFAR = args.cifar
+    relugtz = args.relugtz
+    act_name = "relugtz" if relugtz else "swiglu"
+
 
     if CIFAR:
         dataset_name = "cifar"
@@ -76,7 +80,7 @@ if __name__ == "__main__":
         )
         channels = 3
         model = DiT_Llama(
-            channels, 32, dim=256, n_layers=10, n_heads=8, num_classes=10
+            channels, 32, dim=256, n_layers=10, n_heads=8, num_classes=10, act= act_name
         ).cuda()
 
     else:
@@ -91,7 +95,7 @@ if __name__ == "__main__":
         )
         channels = 1
         model = DiT_Llama(
-            channels, 32, dim=64, n_layers=6, n_heads=4, num_classes=10
+            channels, 32, dim=64, n_layers=6, n_heads=4, num_classes=10, act= act_name
         ).cuda()
 
     model_size = sum(p.numel() for p in model.parameters() if p.requires_grad)

@@ -137,8 +137,22 @@ class Attention(nn.Module):
         return self.wo(output)
 
 
+class ReLUGT(nn.Module):
+    """
+    ReLU GT: Leaky squared ReLU with trainable positive alpha, slope, and static negative alpha.
+    Early experiments show near parity with APTx S1 with faster initial fitting. Only squares positive part.
+    """
+    def __init__(self, initial_slope=0.05, initial_alpha_neg=2.5, initial_alpha_pos=1.0):
+        super(ReLUGT, self).__init__()
+        self.slope = nn.Parameter(torch.tensor(initial_slope))
+        self.alpha_neg = initial_alpha_neg
+        self.alpha_pos = nn.Parameter(torch.tensor(initial_alpha_pos))
+
+    def forward(self, x):
+        return torch.where(x < 0, self.alpha_neg * self.slope * x, self.alpha_pos * x ** 2)
+
 class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim, multiple_of, ffn_dim_multiplier=None):
+    def __init__(self, dim, hidden_dim, multiple_of, ffn_dim_multiplier=None, act="swiglu"):
         super().__init__()
         hidden_dim = int(2 * hidden_dim / 3)
         if ffn_dim_multiplier:
@@ -149,11 +163,18 @@ class FeedForward(nn.Module):
         self.w2 = nn.Linear(hidden_dim, dim, bias=False)
         self.w3 = nn.Linear(dim, hidden_dim, bias=False)
 
+        if act == "swiglu":
+            self.act_fn = self._forward_silu_gating
+        elif act == "relugtz":
+            self.relugt = ReLUGT()
+            self.act_fn = self._forward_relugtz_gating
+    def _forward_relugtz_gating(self, x1, x3):
+        return self.relugt(x1) * x3
     def _forward_silu_gating(self, x1, x3):
         return F.silu(x1) * x3
 
     def forward(self, x):
-        return self.w2(self._forward_silu_gating(self.w1(x), self.w3(x)))
+        return self.w2(self.act_fn(self.w1(x), self.w3(x)))
 
 
 class TransformerBlock(nn.Module):
@@ -165,6 +186,7 @@ class TransformerBlock(nn.Module):
         multiple_of,
         ffn_dim_multiplier,
         norm_eps,
+        act="swiglu",
     ):
         super().__init__()
         self.dim = dim
@@ -175,6 +197,7 @@ class TransformerBlock(nn.Module):
             hidden_dim=4 * dim,
             multiple_of=multiple_of,
             ffn_dim_multiplier=ffn_dim_multiplier,
+            act=act,
         )
         self.layer_id = layer_id
         self.attention_norm = nn.LayerNorm(dim, eps=norm_eps)
@@ -240,6 +263,7 @@ class DiT_Llama(nn.Module):
         norm_eps=1e-5,
         class_dropout_prob=0.1,
         num_classes=10,
+        act="swiglu",
     ):
         super().__init__()
 
@@ -247,6 +271,7 @@ class DiT_Llama(nn.Module):
         self.out_channels = in_channels
         self.input_size = input_size
         self.patch_size = patch_size
+        print(f"ACT: {act}")
 
         self.init_conv_seq = nn.Sequential(
             nn.Conv2d(in_channels, dim // 2, kernel_size=5, padding=2, stride=1),
@@ -272,6 +297,7 @@ class DiT_Llama(nn.Module):
                     multiple_of,
                     ffn_dim_multiplier,
                     norm_eps,
+                    act=act,
                 )
                 for layer_id in range(n_layers)
             ]
